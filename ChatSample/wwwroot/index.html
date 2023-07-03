@@ -1,0 +1,390 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+    <title>SignalR Simple Chat</title>
+
+    <style type="text/css">
+        .row {
+            width: 100%;
+            display: flex;
+            -ms-flex-wrap: wrap;
+            flex-wrap: wrap;
+        }
+
+        .col-md-6 {
+            width: 46%;
+        }
+
+        .container {
+            background-color: #99CCFF;
+            border: thick solid #808080;
+            padding: 20px;
+            margin: 20px;
+        }
+
+        .indivisualContainer {
+            background-color: #99CCFF;
+            border: thick solid #808080;
+            padding: 20px;
+            width: 30%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row">
+            <div class="col-md-6">
+                <input type="hidden" name="userId" id="userId" />
+                <select class="form-select" id="ddlConnecteduser"></select>
+                <input type="text" id="message" />
+                <input type="button" id="sendmessage" value="Send" />
+                <ul id="discussion"></ul>
+            </div>
+            <div class="col-md-6">
+                <input type="text" id="group_name" />
+                <input type="button" id="create_group" value="Create Group" />
+                <ul id="ui_group"></ul>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="row" id="allIndivisualDiscussion">
+
+    </div>
+    <!--Script references. -->
+    <!--Reference the SignalR library. -->
+    <script type="text/javascript" src="lib/signalr.min.js"></script>
+    <!--Add script to update the page and send messages.-->
+    <script type="text/javascript">
+        document.addEventListener('DOMContentLoaded', function () {
+
+            var messageInput = document.getElementById('message');
+            var group_nameInput = document.getElementById('group_name');
+            // Get the user name and store it to prepend to messages.
+            var name = prompt('Enter your name:', '');
+
+            // Set initial focus to message input box.
+            messageInput.focus();
+
+            // Start the connection.
+            var connection = new signalR.HubConnectionBuilder()
+                .withUrl('/chat?name=' + name)
+                .build();
+            // connection.invoke('connect', name);
+            // Create a function that the hub can call to broadcast messages.
+            connection.on('broadcastMessage', function (name, message) {
+                // Html encode display name and message.
+                var encodedName = name;
+                var encodedMsg = message;
+                // Add the message to the page.
+                var liElement = document.createElement('li');
+                liElement.innerHTML = '<strong>' + encodedName + '</strong>:&nbsp;&nbsp;' + encodedMsg;
+                document.getElementById('discussion').appendChild(liElement);
+            });
+
+            connection.on('broadcastToUser', function (sendFrom, userFrom, sendTo, userTo, message) {
+                var indivCont = document.getElementById(`div_${sendFrom}_${sendTo}`);
+                if (indivCont == undefined) {
+                    var indivisualcontainer = document.createElement('div');
+                    indivisualcontainer.id = `div_${sendFrom}_${sendTo}`;
+                    indivisualcontainer.className = 'indivisualContainer col-md-6';
+                    document.getElementById('allIndivisualDiscussion').appendChild(indivisualcontainer);
+
+                    var header = document.createElement('h2');
+                    header.innerHTML = `Conversation between ${userFrom} and ${userTo}`;
+                    indivisualcontainer.appendChild(header);
+
+                    var ui = document.createElement('ui');
+                    ui.id = `ui_${sendFrom}_${sendTo}`;
+                    indivisualcontainer.appendChild(ui);
+                }
+
+                var liElement = document.createElement('li');
+                liElement.innerHTML = '<strong>' + userFrom + '</strong>:&nbsp;&nbsp;' + message;
+                document.getElementById(`ui_${sendFrom}_${sendTo}`).appendChild(liElement);
+            });
+
+            // Create a function that the hub can call to broadcast messages.
+            connection.on('allConnectedUsers', function (users) {
+                var selectedUser = document.getElementById('ddlConnecteduser');
+                for (var i = 0; i < selectedUser.length; i++) {
+                    selectedUser.remove(i);
+                }
+
+                selectedUser.remove(0);
+                var optionElement = document.createElement("option");
+                optionElement.text = "Select One";
+                optionElement.value = 0;
+                selectedUser.appendChild(optionElement);
+
+
+                for (var i = 0; i < users.length; i++) {
+                    var user = users[i];
+                    if (user.value != name) {
+                        var optionElement1 = document.createElement("option");
+                        optionElement1.text = user.value;
+                        optionElement1.value = user.key;
+                        selectedUser.appendChild(optionElement1);
+                    }
+                }
+
+
+            });
+
+            // Create a function that the hub can call to broadcast messages.
+            connection.on('userConnected', function (userId, userName) {
+                // Html encode display name and message.
+                var encodedName = userName;
+                var encodedUserId = userId;
+
+                // Add the message to the page.
+                if (encodedName != name) {
+                    //var optionElement = document.createElement("option");
+                    //optionElement.text = encodedName;
+                    //optionElement.value = encodedUserId;
+                    //document.getElementById('ddlConnecteduser').appendChild(optionElement);
+                } else {
+                    document.getElementById("userId").value = encodedUserId;
+                }
+            });
+
+            // Transport fallback functionality is now built into start.
+            connection.start()
+                .then(function () {
+                    console.log('connection started');
+
+                    document.getElementById('sendmessage').addEventListener('click', function (event) {
+                        // Call the Send method on the hub.
+                        var sendTo = parseInt(document.getElementById('ddlConnecteduser').value);
+                        if (sendTo == 0) {
+                            connection.invoke('send', name, messageInput.value);
+                        } else {
+                            var sendFrom = parseInt(document.getElementById("userId").value);
+                            connection.invoke('SendToUser', sendFrom, sendTo, messageInput.value);
+                        }
+
+                        // Clear text box and reset focus for next comment.
+                        messageInput.value = '';
+                        messageInput.focus();
+                        event.preventDefault();
+                    });
+
+                    document.getElementById('create_group').addEventListener('click', function (event) {
+                        var sendFrom = parseInt(document.getElementById("userId").value);
+                        connection.invoke('CreateGroup', group_nameInput.value, sendFrom);
+                        // Clear text box and reset focus for next comment.
+                        group_nameInput.value = '';
+                        group_nameInput.focus();
+                        event.preventDefault();
+                    });
+                })
+                .catch(error => {
+                    console.error(error.message);
+                });
+
+            connection.on('getAllGroups', function (groups) {
+                var group_ui = document.getElementById('ui_group');
+
+                group_ui.innerHTML = '';
+
+                for (var i = 0; i < groups.length; i++) {
+                    var group = groups[i];
+                    var liElement = document.createElement('li');
+                    liElement.setAttribute('data-id', group.id);
+                    liElement.innerHTML = '<strong>' + group.name + `</strong>:&nbsp;&nbsp;`;
+
+                    var inputButton = document.createElement('input');
+                    inputButton.className = `joinGroup`;
+                    inputButton.id = `joingroup_${group.id}`;
+                    inputButton.value = 'Join';
+                    inputButton.type = 'button';
+                    inputButton.setAttribute('data-id', group.id);
+                    inputButton.addEventListener(
+                        "click",
+                        function (event) {
+                            var sendFrom = parseInt(document.getElementById("userId").value);
+                            let groupId = event.target.getAttribute("data-id");
+                            JoinGroup(groupId, sendFrom);
+                        },
+                        true
+                    );
+                    liElement.appendChild(inputButton);
+
+                    var inputButtonRemove = document.createElement('input');
+                    inputButtonRemove.className = `removeGroup`;
+                    inputButtonRemove.id = `removegroup_${group.id}`;
+                    inputButtonRemove.value = 'Remove';
+                    inputButtonRemove.type = 'button';
+                    inputButtonRemove.setAttribute('data-id', group.id);
+                    inputButtonRemove.setAttribute("style", "display:none;");
+                    inputButtonRemove.addEventListener(
+                        "click",
+                        function (event) {
+                            var sendFrom = parseInt(document.getElementById("userId").value);
+                            let groupId = event.target.getAttribute("data-id");
+                            RemoveFromGroup(groupId, sendFrom);
+                        },
+                        true
+                    );
+                    liElement.appendChild(inputButtonRemove);
+                    group_ui.appendChild(liElement);
+                }
+            });
+
+            connection.on('appendNewGroups', function (id, name) {
+                var group_ui = document.getElementById('ui_group');
+                var liElement = document.createElement('li');
+                liElement.innerHTML = '<strong>' + name + `</strong>:&nbsp;&nbsp;`;
+
+                var inputButton = document.createElement('input');
+                inputButton.className = `joinGroup`;
+                inputButton.id = `joingroup_${id}`;
+                inputButton.value = 'Join';
+                inputButton.type = 'button';
+                inputButton.setAttribute('data-id', id);
+                inputButton.addEventListener(
+                    "click",
+                    function (event) {
+                        var sendFrom = parseInt(document.getElementById("userId").value);
+                        let groupId = event.target.getAttribute("data-id");
+                        JoinGroup(groupId, sendFrom);
+                    },
+                    true
+                );
+                liElement.appendChild(inputButton);
+
+                var inputButtonRemove = document.createElement('input');
+                inputButtonRemove.className = `removeGroup`;
+                inputButtonRemove.id = `removegroup_${id}`;
+                inputButtonRemove.value = 'Remove';
+                inputButtonRemove.type = 'button';
+                inputButtonRemove.setAttribute('data-id', id);
+                inputButtonRemove.setAttribute("style", "display:none;");
+                inputButtonRemove.addEventListener(
+                    "click",
+                    function (event) {
+                        var sendFrom = parseInt(document.getElementById("userId").value);
+                        let groupId = event.target.getAttribute("data-id");
+                        RemoveFromGroup(groupId, sendFrom);
+                    },
+                    true
+                );
+                liElement.appendChild(inputButtonRemove);
+
+                group_ui.appendChild(liElement);
+
+
+
+            });
+
+            function JoinGroup(groupId, userId) {
+                var joinGroup = document.getElementById(`joingroup_${groupId}`);
+                var removeGroup = document.getElementById(`removegroup_${groupId}`);
+                joinGroup.setAttribute("style", "display:none;");
+                removeGroup.setAttribute("style", "display:;");
+                connection.invoke('JoinGoup', parseInt(userId), parseInt(groupId));
+            }
+
+            function RemoveFromGroup(groupId, userId) {
+                var joinGroup = document.getElementById(`joingroup_${groupId}`);
+                var removeGroup = document.getElementById(`removegroup_${groupId}`);
+                joinGroup.setAttribute("style", "display:;");
+                removeGroup.setAttribute("style", "display:none;");
+                connection.invoke('RemoveGroup', parseInt(userId), parseInt(groupId));
+                var indivCont = document.getElementById(`group_${groupId}`);
+                indivCont.remove();
+            }
+
+            function SendMessageToGroup(groupId, userId) {
+                var messageInputGroup = document.getElementById(`${groupId}_group_message`);
+                connection.invoke('SendMessageToGroup', parseInt(groupId), parseInt(userId), name, messageInputGroup.value);
+                messageInputGroup.value = '';
+                messageInputGroup.focus();
+            }
+
+            connection.on('userAddedToGroup', function (sendFrom, groupName, groupId) {
+                var indivCont = document.getElementById(`group_${groupId}`);
+                if (indivCont == undefined) {
+                    var indivisualcontainer = document.createElement('div');
+                    indivisualcontainer.id = `group_${groupId}`;
+                    indivisualcontainer.className = 'indivisualContainer col-md-6';
+                    document.getElementById('allIndivisualDiscussion').appendChild(indivisualcontainer);
+
+                    var header = document.createElement('h2');
+                    header.innerHTML = `Chat room =>  ${groupName}`;
+
+                    var inputButtonRemove = document.createElement('input');
+                    inputButtonRemove.className = `removeGroup`;
+                    inputButtonRemove.id = `removegroup_${groupId}`;
+                    inputButtonRemove.value = 'Remove';
+                    inputButtonRemove.type = 'button';
+                    inputButtonRemove.setAttribute('data-id', groupId);
+                    inputButtonRemove.addEventListener(
+                        "click",
+                        function (event) {
+                            var sendFrom = parseInt(document.getElementById("userId").value);
+                            let groupId = event.target.getAttribute("data-id");
+                            RemoveFromGroup(groupId, sendFrom);
+                        },
+                        true
+                    );
+                    header.appendChild(inputButtonRemove);
+
+                    indivisualcontainer.appendChild(header);
+
+                    var ui = document.createElement('ui');
+                    ui.id = `ui_${groupId}`;
+                    indivisualcontainer.appendChild(ui);
+
+                    var inputHidden = document.createElement('input');
+                    inputHidden.className = `groupId`;
+                    inputHidden.value = groupId;
+                    inputHidden.type = 'hidden';
+                    indivisualcontainer.appendChild(inputHidden);
+
+                    var inputText = document.createElement('input');
+                    inputText.id = `${groupId}_group_message`;
+                    inputText.type = 'text';
+                    indivisualcontainer.appendChild(inputText);
+
+
+                    var inputButton = document.createElement('input');
+                    inputButton.className = `sendGroupMessage`;
+                    inputButton.value = 'Send';
+                    inputButton.type = 'button';
+                    inputButton.setAttribute('data-id', groupId);
+                    inputButton.addEventListener(
+                        "click",
+                        function (event) {
+                            var sendFrom = parseInt(document.getElementById("userId").value);
+                            let groupId = event.target.getAttribute("data-id");
+                            SendMessageToGroup(groupId, sendFrom);
+                        },
+                        true
+                    );
+                    indivisualcontainer.appendChild(inputButton);
+
+                    var messageInputGroup = document.getElementById(`${groupId}_group_message`);
+                    messageInputGroup.focus();
+                }
+
+                var liElement = document.createElement('li');
+                liElement.innerHTML = '<strong>' + userFrom + '</strong>:&nbsp;&nbsp;' + message;
+                document.getElementById(`ui_${sendFrom}_${sendTo}`).appendChild(liElement);
+            });
+
+            connection.on('receiveMessageToGroup', function (senderid, sendername, groupId, message) {
+                // Html encode display name and message.
+                var encodedName = sendername;
+                var encodedMsg = message;
+                // Add the message to the page.
+                var liElement = document.createElement('li');
+                liElement.innerHTML = '<strong>' + encodedName + '</strong>:&nbsp;&nbsp;' + encodedMsg;
+                document.getElementById(`ui_${groupId}`).appendChild(liElement);
+            });
+        });
+    </script>
+</body>
+</html>
